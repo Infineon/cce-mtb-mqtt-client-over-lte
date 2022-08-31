@@ -1,0 +1,2 @@
+# cce-mtb-psoc6-mqtt-client-over-lte
+This community code example (CCE) demonstrates the implementation of LTE CAT M1 connectivity to PSoC6 via Point-to-Point Protocol (PPP). This CCE demonstrates the steps to add LTE connectivity to any existing Wi-Fi based code example. mtb-example-anycloud-mqtt-client is taken as a reference here. GM01Q_Sequans Module is used for providing LTE connectivity for PSoC6 device. The MQTT Library and lwIP is hosted in PSoC6 and the GM01Q Module communicates to PSoC6 via PPP.
