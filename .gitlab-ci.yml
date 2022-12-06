@@ -1,0 +1,329 @@
+# Refer to the memo SRDS-383 for details on how to use this template.
+variables:
+  # Specify the code example version. This version is used for tagging the staging repository.
+  CE_REL_VERSION: 4.0.0
+
+  # Specify the code example author's Cypress initials/username. This will be used in CX survey URL generation and to automatically assign regression JIRA tickets.
+  CE_AUTHOR_NAME: "SMRX"
+
+  # Specify the code example author's Infineon username. This will be used in to automatically assign regression JIRA tickets.
+  CE_AUTHOR_USERNAME: "MShriram"
+
+  # Specify the code example author's Infineon email address. This will be used in CX survey URL generation.
+  CE_AUTHOR_EMAIL: "Shriram.M@infineon.com"
+
+  # Specify the code example Spec/ECN category - Division. E.g. MCD, MS
+  CE_SPEC_DIVISION: "MCD"
+
+  # Specify the code example Spec/ECN category - Business Unit. E.g. ICW, WIRED, AUTO
+  CE_SPEC_BIZ_UNIT: "ICW"
+
+  # Specify the code example Spec/ECN category - Product Family. E.g. PSOC, WIFI, BTABLE
+  CE_SPEC_PROD_FAMILY: "PSOC"
+
+  # Specify the toolchain, separated by spaces. E.g. GCC_ARM IAR ARM
+  CE_TOOLCHAIN_LIST: GCC_ARM IAR ARM
+
+  # Specify the build configuration, separated by spaces. E.g. Release Debug
+  CE_CONFIG_LIST: Release Debug
+
+  # Specify the additional build parameters, like verbose output. Leave it empty if not needed.
+  CE_BUILD_PARAM: ""
+
+  # Specify the ModusToolbox version using which this CE will be tested by the CI script. When the value is empty, the script will use the latest version of the tool.
+  MTB_INSTALL_VER: ""
+
+  # Specify the Secure Boot policy (.json file name) only if you want to override the default policy.
+  CE_SECURE_POLICY: ""
+
+### DO NOT EDIT THE SECTIONS BELOW ###
+
+  GIT_SUBMODULE_STRATEGY: recursive # Fetch the Git submodules
+
+stages:
+  - format
+  - build
+  - preview
+  - test
+  - coverage
+  - deploy
+
+# Check whether the YML job configurations are matching the template repo
+validate-yml-config:
+  stage: format
+  tags:
+    - L2APPS-Regression
+  only:
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  allow_failure: true
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --check-yml
+
+# Check whether the CE structure is as expected
+test-ce-structure:
+  stage: format
+  tags:
+    - L2APPS-Regression
+  only:
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  allow_failure: true
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --format
+
+# Push the preview/under development version of CE to the staging repository and promote the tags
+deploy-ce-preview:
+  stage: preview
+  tags:
+    - devops-assets
+  only:
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - develop
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  when: manual
+  script:
+    # Push the CE to staging repo and update the CE manifest
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --stage
+    - bash ci/ce_modus_git.sh --manifest
+    # Promote the CE to add release tags (on staging repo)
+    - bash -c 'rm -rf ci $CI_PROJECT_NAME'
+    - git clone -b develop https://devops-git.aus.cypress.com/repo-staging/ci.git
+    - bash -c 'env PROMOTE_ASSET=$CI_PROJECT_NAME STAGING_REVISION=preview-v$CE_REL_VERSION.$CI_PIPELINE_IID ci/job_promote_asset.sh'
+
+# Build the CE with the default configuration/settings
+build-ce-default-config:
+  stage: build
+  tags:
+    - L2APPS-Regression
+  only:
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - artifacts_collection.zip
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --default-build
+
+# Template job definition for sanity test
+.test-ce-sanity:
+  stage: test
+  only:
+    changes:
+      - "**/*.{c,h,lib,mtb,mk,modus,cycapsense,cyqspi,cyusbdev,cybt,cyseglcd,mtbezpd,mtbml}"
+      - "**/[Mm]akefile"
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --test
+
+# Run code example sanity test on Windows
+test-ce-sanity-windows:
+  extends: .test-ce-sanity
+  tags:
+    - L2APPS-Windows
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - artifacts_windows.zip
+
+# Run code example sanity test on Linux
+test-ce-sanity-linux:
+  extends: .test-ce-sanity
+  tags:
+    - L2APPS-Linux
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - artifacts_linux.zip
+
+# Run code example sanity test on macOS
+test-ce-sanity-macos:
+  extends: .test-ce-sanity
+  tags:
+    - L2APPS-macOS
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - artifacts_macos.zip
+
+# Run Coverity analysis on the code example
+analyze-ce-code:
+  stage: coverage
+  tags:
+    - devops-linux
+  only:
+    changes:
+      - "**/*.{c,h,mk,modus,cycapsense,cyqspi,cyusbdev,cybt,cyseglcd,mtbezpd,mtbml}"
+      - "**/[Mm]akefile"
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  allow_failure: true
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/package_setup_env.sh --ce-mcu-boot
+    - bash ci/package_setup_env.sh --ce-secure-boot CY8CKIT-064B0S2-4343W # Change the target as needed
+    - bash ci/ce_modus_git.sh --analyze
+
+# Build the CE with GitHub assets
+build-ce-github-assets:
+  stage: coverage
+  tags:
+    - L2APPS-Regression
+  only:
+    changes:
+      - "**/*.{c,h,lib,mtb,mk,modus,cycapsense,cyqspi,cyusbdev,cybt,cyseglcd,mtbezpd,mtbml}"
+      - "**/[Mm]akefile"
+    refs:
+      - develop
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  allow_failure: true
+  variables:
+    BUILD_WITH_GITHUB_ASSETS: "1"
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --build
+
+# Build the CE with minimum version of ModusToolbox
+build-ce-mtb-min-version:
+  stage: coverage
+  tags:
+    - devops-linux
+  only:
+    changes:
+      - "**/*.{c,h,lib,mtb,mk,modus,cycapsense,cyqspi,cyusbdev,cybt,cyseglcd,mtbezpd,mtbml}"
+      - "**/[Mm]akefile"
+    refs:
+      - develop
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  allow_failure: true
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/package_setup_env.sh --ce-mcu-boot
+    - bash ci/package_setup_env.sh --ce-secure-boot
+    - bash ci/ce_modus_git.sh --build
+
+# Build the CE with matching targets/BSPs
+build-ce-matching-bsps:
+  stage: coverage
+  tags:
+    - L2APPS-Regression
+  only:
+    changes:
+      - "**/*.{c,h,lib,mtb,mk,modus,cycapsense,cyqspi,cyusbdev,cybt,cyseglcd,mtbezpd,mtbml}"
+      - "**/[Mm]akefile"
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  allow_failure: true
+  variables:
+    BUILD_WITH_NEW_BSP: "1"
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --build
+
+# Push the code example to staging repository and promote the tags
+promote-ce-staging:
+  stage: deploy
+  tags:
+    - devops-assets
+  only:
+    refs:
+      - develop
+    variables:
+      - $CI_PROJECT_NAMESPACE == "wpp/ce/mtb"
+  except:
+    refs:
+      - tags
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  script:
+    # Push the CE to staging repo and update the CE manifest
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --stage
+    - bash ci/ce_modus_git.sh --manifest
+    # Promote the CE to add release tags (on staging repo)
+    - bash -c 'rm -rf ci $CI_PROJECT_NAME'
+    - git clone -b develop https://devops-git.aus.cypress.com/repo-staging/ci.git
+    - bash -c 'env PROMOTE_ASSET=$CI_PROJECT_NAME STAGING_REVISION=$CE_REL_VERSION.$CI_PIPELINE_IID ci/job_promote_asset.sh'
+
+# Run scheduled regression test on the code example
+test-ce-regression:
+  stage: test
+  tags:
+    - L2APPS-Interface
+  only:
+    refs:
+      - develop
+      - schedules
+    variables:
+      - $REGRESSION == "true"
+  script:
+    - git clone -b develop https://devops-git.aus.cypress.com/wpp/ce/ci.git
+    - bash ci/ce_modus_git.sh --regress
